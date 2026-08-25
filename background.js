@@ -14008,6 +14008,42 @@ const phoneVerificationHelpers = self.MultiPageBackgroundPhoneVerification?.crea
       url: 'https://auth.openai.com/add-phone',
     };
   },
+  reloadAuthTab: async (tabId, options = {}) => {
+    if (!Number.isInteger(tabId)) {
+      throw new Error('reloadAuthTab：缺少有效的认证页标签页。');
+    }
+    const requestedTimeoutMs = Number(options.timeoutMs);
+    const timeoutMs = Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs > 0
+      ? requestedTimeoutMs
+      : 30000;
+    await chrome.tabs.update(tabId, { active: true }).catch(() => { });
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        chrome.tabs.onUpdated.removeListener(listener);
+        reject(new Error('reloadAuthTab：等待认证页刷新完成超时。'));
+      }, timeoutMs);
+      const listener = (updatedTabId, changeInfo) => {
+        if (updatedTabId !== tabId) return;
+        if (changeInfo.status !== 'complete') return;
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+      chrome.tabs.reload(tabId, { bypassCache: false }).catch((err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        chrome.tabs.onUpdated.removeListener(listener);
+        reject(err);
+      });
+    });
+  },
   generateRandomBirthday,
   generateRandomName,
   getOAuthFlowRemainingMs,

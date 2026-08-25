@@ -15,6 +15,7 @@
       sendToContentScript,
       sendToContentScriptResilient,
       navigateAuthTabToAddPhone = null,
+      reloadAuthTab = null,
       setState,
       broadcastDataUpdate = null,
       sleepWithStop,
@@ -274,7 +275,7 @@
       if (!text) {
         return false;
       }
-      return /phone_max_usage_exceeded|phone_number_in_use|already\s+linked\s+to\s+the\s+maximum\s+number\s+of\s+accounts|phone\s+number\s+is\s+already\s+(?:in\s+use|linked|registered)|phone\s+number\s+has\s+already\s+been\s+used|already\s+associated\s+with\s+another\s+account|not\s+eligible\s+to\s+be\s+used|cannot\s+be\s+used\s+for\s+verification|号码.*(?:已|被).*(?:使用|占用|绑定|注册)|手机号.*(?:已|被).*(?:使用|占用|绑定|注册)|该手机号.*(?:已|被).*(?:使用|占用|绑定|注册)/i.test(text);
+      return /phone_max_usage_exceeded|phone_number_in_use|already\s+linked\s+to\s+the\s+maximum\s+number\s+of\s+accounts|phone\s+number\s+(?:is\s+)?already\s+(?:in\s+use|linked|registered)|phone\s+number\s+has\s+already\s+been\s+used|already\s+associated\s+with\s+another\s+account|not\s+eligible\s+to\s+be\s+used|cannot\s+be\s+used\s+for\s+verification|号码.*(?:已|被).*(?:使用|占用|绑定|注册)|手机号.*(?:已|被).*(?:使用|占用|绑定|注册)|该手机号.*(?:已|被).*(?:使用|占用|绑定|注册)/i.test(text);
     }
 
     function isPhoneNumberUsedFailureReason(value) {
@@ -327,6 +328,20 @@
           value.message,
         ].filter(Boolean).join(' ');
       return /whats\s*app/i.test(String(text || ''));
+    }
+
+    async function reloadAuthTabForWhatsAppRotation(tabId) {
+      if (typeof reloadAuthTab !== 'function') {
+        return;
+      }
+      try {
+        await reloadAuthTab(tabId);
+      } catch (reloadError) {
+        await addLog(
+          `步骤 9：刷新认证页以恢复短信通道入口失败，仍按计划更换号码。${reloadError?.message || reloadError}`,
+          'warn'
+        );
+      }
     }
 
     function isRecoverableAddPhoneSubmitError(value) {
@@ -3055,9 +3070,10 @@
               const resendProbeResult = await resendPhoneVerificationCode(tabId, { probeOnly: true });
               if (isWhatsAppPhoneResendResult(resendProbeResult)) {
                 await addLog(
-                  `步骤 9：页面重发入口显示 WhatsApp 通道（${resendProbeResult.channelText || resendProbeResult.text || 'WhatsApp'}），当前接码平台无法读取 WhatsApp 消息，立即更换号码。`,
+                  `步骤 9：页面重发入口显示 WhatsApp 通道（${resendProbeResult.channelText || resendProbeResult.text || 'WhatsApp'}），当前接码平台无法读取 WhatsApp 消息，刷新认证页后立即更换号码。`,
                   'warn'
                 );
+                await reloadAuthTabForWhatsAppRotation(tabId);
                 await clearPhoneRuntimeCountdown();
                 return {
                   code: '',
@@ -3070,9 +3086,10 @@
                 const resendResult = await resendPhoneVerificationCode(tabId);
                 if (isWhatsAppPhoneResendResult(resendResult)) {
                   await addLog(
-                    `步骤 9：页面重发入口切换为 WhatsApp 通道（${resendResult.channelText || resendResult.text || 'WhatsApp'}），当前接码平台无法读取 WhatsApp 消息，立即更换号码。`,
+                    `步骤 9：页面重发入口切换为 WhatsApp 通道（${resendResult.channelText || resendResult.text || 'WhatsApp'}），当前接码平台无法读取 WhatsApp 消息，刷新认证页后立即更换号码。`,
                     'warn'
                   );
+                  await reloadAuthTabForWhatsAppRotation(tabId);
                   await clearPhoneRuntimeCountdown();
                   return {
                     code: '',
@@ -3991,6 +4008,9 @@
           `步骤 9：添加手机号失败后正在更换号码（${formatStep9Reason(failureReason)}，${usedNumberReplacementAttempts}/${maxNumberReplacementAttempts}）。`,
           'warn'
         );
+        if (isWhatsAppPhoneResendResult(String(failureReason || ''))) {
+          await reloadAuthTabForWhatsAppRotation(tabId);
+        }
         const rotated = shouldCancelActivation && activation
           ? await rotateCurrentActivation(
             failureCode || failureReason,
@@ -4356,9 +4376,10 @@
                     shouldReplaceNumber = true;
                     replaceReason = 'whatsapp_resend_channel';
                     await addLog(
-                      `步骤 9：验证码被拒后的重发入口显示 WhatsApp 通道（${resendProbeResult.channelText || resendProbeResult.text || 'WhatsApp'}），当前接码平台无法读取 WhatsApp 消息，将更换号码。`,
+                      `步骤 9：验证码被拒后的重发入口显示 WhatsApp 通道（${resendProbeResult.channelText || resendProbeResult.text || 'WhatsApp'}），当前接码平台无法读取 WhatsApp 消息，刷新认证页后将更换号码。`,
                       'warn'
                     );
+                    await reloadAuthTabForWhatsAppRotation(tabId);
                     break;
                   }
                   await requestAdditionalPhoneSms(state, activation);
@@ -4368,9 +4389,10 @@
                       shouldReplaceNumber = true;
                       replaceReason = 'whatsapp_resend_channel';
                       await addLog(
-                        `步骤 9：验证码被拒后的重发入口切换为 WhatsApp 通道（${resendResult.channelText || resendResult.text || 'WhatsApp'}），当前接码平台无法读取 WhatsApp 消息，将更换号码。`,
+                        `步骤 9：验证码被拒后的重发入口切换为 WhatsApp 通道（${resendResult.channelText || resendResult.text || 'WhatsApp'}），当前接码平台无法读取 WhatsApp 消息，刷新认证页后将更换号码。`,
                         'warn'
                       );
+                      await reloadAuthTabForWhatsAppRotation(tabId);
                       break;
                     }
                   }
