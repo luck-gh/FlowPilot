@@ -28,8 +28,16 @@ async function fetchDuckEmail(payload = {}) {
 
   log(`Duck 邮箱：正在${generateNew ? '生成' : '读取'}私有地址...`);
 
+  // 类名可能随版本变化，先尝试精确选择器，降级到 duck.com 邮箱输入框或任意按钮
   await waitForElement(
-    'input.AutofillSettingsPanel__PrivateDuckAddressValue, button.AutofillSettingsPanel__GeneratorButton',
+    [
+      'input.AutofillSettingsPanel__PrivateDuckAddressValue',
+      'button.AutofillSettingsPanel__GeneratorButton',
+      'input[value*="@duck.com" i]',
+      'input[placeholder*="duck" i]',
+      'input[class*="DuckAddress" i]',
+      'button[class*="Generator" i]',
+    ].join(', '),
     15000
   );
 
