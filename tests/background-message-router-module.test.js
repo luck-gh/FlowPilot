@@ -301,15 +301,17 @@ test('SAVE_SETTING broadcasts operation delay setting without background success
   assert.equal(logs.length, 0);
 });
 
-test('SAVE_SETTING rebuilds Plus node statuses when the account access strategy changes', async () => {
+test('SAVE_SETTING rebuilds node statuses when the account delivery mode changes', async () => {
   const source = fs.readFileSync('background/message-router.js', 'utf8');
   const globalScope = { console };
   const api = new Function('self', `${source}; return self.MultiPageBackgroundMessageRouter;`)(globalScope);
   const broadcasts = [];
   let state = {
-    plusModeEnabled: true,
+    activeFlowId: 'openai',
+    targetId: 'cpa',
+    plusModeEnabled: false,
     plusPaymentMethod: 'paypal',
-    plusAccountAccessStrategy: 'oauth',
+    accountDeliveryMode: 'oauth',
     oauthUrl: 'https://oauth.example/current',
     localhostUrl: 'http://localhost:38080/callback',
     oauthFlowDeadlineAt: Date.now() + 60000,
@@ -327,10 +329,11 @@ test('SAVE_SETTING rebuilds Plus node statuses when the account access strategy 
     currentNodeId: 'confirm-oauth',
     nodeStatuses: {
       'open-chatgpt': 'completed',
-      'plus-checkout-create': 'completed',
-      'plus-checkout-billing': 'completed',
-      'paypal-approve': 'completed',
-      'plus-checkout-return': 'completed',
+      'submit-signup-email': 'completed',
+      'fill-password': 'completed',
+      'fetch-signup-code': 'completed',
+      'fill-profile': 'completed',
+      'wait-registration-success': 'completed',
       'oauth-login': 'completed',
       'fetch-login-code': 'completed',
       'post-login-phone-verification': 'completed',
@@ -342,151 +345,28 @@ test('SAVE_SETTING rebuilds Plus node statuses when the account access strategy 
   const router = api.createMessageRouter({
     addLog: async () => {},
     buildLuckmailSessionSettingsPayload: () => ({}),
-    buildPersistentSettingsPayload: (input = {}) => Object.prototype.hasOwnProperty.call(input, 'plusAccountAccessStrategy')
-      ? { plusAccountAccessStrategy: input.plusAccountAccessStrategy }
+    buildPersistentSettingsPayload: (input = {}) => Object.prototype.hasOwnProperty.call(input, 'accountDeliveryMode')
+      ? { accountDeliveryMode: input.accountDeliveryMode }
       : {},
     broadcastDataUpdate: (payload) => broadcasts.push(payload),
     getNodeIdsForState: (nextState = {}) => (
-      String(nextState.plusAccountAccessStrategy || '').trim() === 'sub2api_codex_session'
+      String(nextState.accountDeliveryMode || '').trim() === 'session'
         ? [
           'open-chatgpt',
-          'plus-checkout-create',
-          'plus-checkout-billing',
-          'paypal-approve',
-          'plus-checkout-return',
-          'sub2api-session-import',
+          'submit-signup-email',
+          'fill-password',
+          'fetch-signup-code',
+          'fill-profile',
+          'wait-registration-success',
+          'cpa-session-import',
         ]
         : [
           'open-chatgpt',
-          'plus-checkout-create',
-          'plus-checkout-billing',
-          'paypal-approve',
-          'plus-checkout-return',
-          'oauth-login',
-          'fetch-login-code',
-          'post-login-phone-verification',
-          'confirm-oauth',
-          'platform-verify',
-        ]
-    ),
-    getState: async () => ({ ...state }),
-    getStepIdsForState: () => [],
-    setPersistentSettings: async (updates) => ({ ...updates }),
-    setState: async (updates) => {
-      state = { ...state, ...updates };
-    },
-  });
-
-  const response = await router.handleMessage({
-    type: 'SAVE_SETTING',
-    payload: {
-      plusAccountAccessStrategy: 'sub2api_codex_session',
-    },
-  });
-
-  assert.equal(response.ok, true);
-  assert.equal(state.plusAccountAccessStrategy, 'sub2api_codex_session');
-  assert.equal(state.currentNodeId, '');
-  assert.equal(state.oauthUrl, null);
-  assert.equal(state.localhostUrl, null);
-  assert.equal(state.oauthFlowDeadlineAt, null);
-  assert.equal(state.oauthFlowDeadlineSourceUrl, null);
-  assert.equal(state.cpaOAuthState, null);
-  assert.equal(state.cpaManagementOrigin, null);
-  assert.equal(state.sub2apiSessionId, null);
-  assert.equal(state.sub2apiOAuthState, null);
-  assert.equal(state.sub2apiGroupId, null);
-  assert.deepStrictEqual(state.sub2apiGroupIds, []);
-  assert.equal(state.sub2apiDraftName, null);
-  assert.equal(state.sub2apiProxyId, null);
-  assert.equal(state.codex2apiSessionId, null);
-  assert.equal(state.codex2apiOAuthState, null);
-  assert.deepStrictEqual(state.nodeStatuses, {
-    'open-chatgpt': 'pending',
-    'plus-checkout-create': 'pending',
-    'plus-checkout-billing': 'pending',
-    'paypal-approve': 'pending',
-    'plus-checkout-return': 'pending',
-    'sub2api-session-import': 'pending',
-  });
-  assert.equal(Object.prototype.hasOwnProperty.call(state.nodeStatuses, 'oauth-login'), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(state.nodeStatuses, 'platform-verify'), false);
-  assert.deepStrictEqual(broadcasts.at(-1), {
-    plusAccountAccessStrategy: 'sub2api_codex_session',
-    oauthUrl: null,
-    localhostUrl: null,
-    oauthFlowDeadlineAt: null,
-    oauthFlowDeadlineSourceUrl: null,
-    cpaOAuthState: null,
-    cpaManagementOrigin: null,
-    sub2apiSessionId: null,
-    sub2apiOAuthState: null,
-    sub2apiGroupId: null,
-    sub2apiGroupIds: [],
-    sub2apiDraftName: null,
-    sub2apiProxyId: null,
-    codex2apiSessionId: null,
-    codex2apiOAuthState: null,
-    nodeStatuses: {
-      'open-chatgpt': 'pending',
-      'plus-checkout-create': 'pending',
-      'plus-checkout-billing': 'pending',
-      'paypal-approve': 'pending',
-      'plus-checkout-return': 'pending',
-      'sub2api-session-import': 'pending',
-    },
-    currentNodeId: '',
-  });
-});
-
-test('SAVE_SETTING rebuilds Plus node statuses when panel mode forces the effective strategy back to OAuth', async () => {
-  const source = fs.readFileSync('background/message-router.js', 'utf8');
-  const globalScope = { console };
-  const api = new Function('self', `${source}; return self.MultiPageBackgroundMessageRouter;`)(globalScope);
-  const broadcasts = [];
-  let state = {
-    targetId: 'sub2api',
-    plusModeEnabled: true,
-    plusPaymentMethod: 'paypal',
-    plusAccountAccessStrategy: 'sub2api_codex_session',
-    oauthUrl: 'https://oauth.example/current',
-    localhostUrl: 'http://localhost:38080/callback',
-    sub2apiSessionId: 'sub-session',
-    currentNodeId: 'sub2api-session-import',
-    nodeStatuses: {
-      'open-chatgpt': 'completed',
-      'plus-checkout-create': 'completed',
-      'plus-checkout-billing': 'completed',
-      'paypal-approve': 'completed',
-      'plus-checkout-return': 'completed',
-      'sub2api-session-import': 'running',
-    },
-  };
-
-  const router = api.createMessageRouter({
-    addLog: async () => {},
-    buildLuckmailSessionSettingsPayload: () => ({}),
-    buildPersistentSettingsPayload: (input = {}) => Object.prototype.hasOwnProperty.call(input, 'targetId')
-      ? { targetId: input.targetId }
-      : {},
-    broadcastDataUpdate: (payload) => broadcasts.push(payload),
-    getNodeIdsForState: (nextState = {}) => (
-      String(nextState.targetId || '').trim() === 'sub2api'
-      && String(nextState.plusAccountAccessStrategy || '').trim() === 'sub2api_codex_session'
-        ? [
-          'open-chatgpt',
-          'plus-checkout-create',
-          'plus-checkout-billing',
-          'paypal-approve',
-          'plus-checkout-return',
-          'sub2api-session-import',
-        ]
-        : [
-          'open-chatgpt',
-          'plus-checkout-create',
-          'plus-checkout-billing',
-          'paypal-approve',
-          'plus-checkout-return',
+          'submit-signup-email',
+          'fill-password',
+          'fetch-signup-code',
+          'fill-profile',
+          'wait-registration-success',
           'oauth-login',
           'fetch-login-code',
           'post-login-phone-verification',
@@ -506,60 +386,152 @@ test('SAVE_SETTING rebuilds Plus node statuses when panel mode forces the effect
     type: 'SAVE_SETTING',
     payload: {
       targetId: 'cpa',
+      accountDeliveryMode: 'session',
+    },
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(state.accountDeliveryMode, 'session');
+  assert.equal(state.currentNodeId, '');
+  assert.equal(state.oauthUrl, null);
+  assert.equal(state.localhostUrl, null);
+  assert.equal(state.oauthFlowDeadlineAt, null);
+  assert.equal(state.oauthFlowDeadlineSourceUrl, null);
+  assert.equal(state.cpaOAuthState, null);
+  assert.equal(state.cpaManagementOrigin, null);
+  assert.equal(state.sub2apiSessionId, null);
+  assert.equal(state.sub2apiOAuthState, null);
+  assert.equal(state.sub2apiGroupId, null);
+  assert.deepStrictEqual(state.sub2apiGroupIds, []);
+  assert.equal(state.sub2apiDraftName, null);
+  assert.equal(state.sub2apiProxyId, null);
+  assert.equal(state.codex2apiSessionId, null);
+  assert.equal(state.codex2apiOAuthState, null);
+  const expectedNodeStatuses = {
+    'open-chatgpt': 'pending',
+    'submit-signup-email': 'pending',
+    'fill-password': 'pending',
+    'fetch-signup-code': 'pending',
+    'fill-profile': 'pending',
+    'wait-registration-success': 'pending',
+    'cpa-session-import': 'pending',
+  };
+  assert.deepStrictEqual(state.nodeStatuses, expectedNodeStatuses);
+  assert.equal(Object.prototype.hasOwnProperty.call(state.nodeStatuses, 'oauth-login'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(state.nodeStatuses, 'platform-verify'), false);
+  const broadcast = broadcasts.at(-1);
+  assert.equal(broadcast.accountDeliveryMode, 'session');
+  assert.equal(broadcast.oauthUrl, null);
+  assert.equal(broadcast.localhostUrl, null);
+  assert.equal(broadcast.currentNodeId, '');
+  assert.deepStrictEqual(broadcast.nodeStatuses, expectedNodeStatuses);
+});
+
+test('SAVE_SETTING rebuilds node statuses when a target switch resolves its delivery mode', async () => {
+  const source = fs.readFileSync('background/message-router.js', 'utf8');
+  const globalScope = { console };
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundMessageRouter;`)(globalScope);
+  const broadcasts = [];
+  let state = {
+    activeFlowId: 'openai',
+    targetId: 'sub2api',
+    plusModeEnabled: false,
+    plusPaymentMethod: 'paypal',
+    accountDeliveryMode: 'agent_identity',
+    oauthUrl: 'https://oauth.example/current',
+    localhostUrl: 'http://localhost:38080/callback',
+    sub2apiSessionId: 'sub-session',
+    currentNodeId: 'sub2api-agent-identity-import',
+    nodeStatuses: {
+      'open-chatgpt': 'completed',
+      'submit-signup-email': 'completed',
+      'fill-password': 'completed',
+      'fetch-signup-code': 'completed',
+      'fill-profile': 'completed',
+      'wait-registration-success': 'completed',
+      'sub2api-agent-identity-import': 'running',
+    },
+  };
+
+  const router = api.createMessageRouter({
+    addLog: async () => {},
+    buildLuckmailSessionSettingsPayload: () => ({}),
+    buildPersistentSettingsPayload: (input = {}) => Object.prototype.hasOwnProperty.call(input, 'targetId')
+      ? { targetId: input.targetId }
+      : {},
+    broadcastDataUpdate: (payload) => broadcasts.push(payload),
+    getNodeIdsForState: (nextState = {}) => (
+      String(nextState.targetId || '').trim() === 'sub2api'
+      && String(nextState.accountDeliveryMode || '').trim() === 'agent_identity'
+        ? [
+          'open-chatgpt',
+          'submit-signup-email',
+          'fill-password',
+          'fetch-signup-code',
+          'fill-profile',
+          'wait-registration-success',
+          'sub2api-agent-identity-import',
+        ]
+        : [
+          'open-chatgpt',
+          'submit-signup-email',
+          'fill-password',
+          'fetch-signup-code',
+          'fill-profile',
+          'wait-registration-success',
+          'oauth-login',
+          'fetch-login-code',
+          'post-login-phone-verification',
+          'confirm-oauth',
+          'platform-verify',
+        ]
+    ),
+    getState: async () => ({ ...state }),
+    getStepIdsForState: () => [],
+    setPersistentSettings: async (updates) => ({
+      ...updates,
+      ...(updates.targetId === 'cpa' ? { accountDeliveryMode: 'oauth' } : {}),
+    }),
+    setState: async (updates) => {
+      state = { ...state, ...updates };
+    },
+  });
+
+  const response = await router.handleMessage({
+    type: 'SAVE_SETTING',
+    payload: {
+      targetId: 'cpa',
     },
   });
 
   assert.equal(response.ok, true);
   assert.equal(state.targetId, 'cpa');
-  assert.equal(state.plusAccountAccessStrategy, 'sub2api_codex_session');
+  assert.equal(state.accountDeliveryMode, 'oauth');
   assert.equal(state.currentNodeId, '');
   assert.equal(state.oauthUrl, null);
   assert.equal(state.localhostUrl, null);
   assert.equal(state.sub2apiSessionId, null);
-  assert.deepStrictEqual(state.nodeStatuses, {
+  const expectedNodeStatuses = {
     'open-chatgpt': 'pending',
-    'plus-checkout-create': 'pending',
-    'plus-checkout-billing': 'pending',
-    'paypal-approve': 'pending',
-    'plus-checkout-return': 'pending',
+    'submit-signup-email': 'pending',
+    'fill-password': 'pending',
+    'fetch-signup-code': 'pending',
+    'fill-profile': 'pending',
+    'wait-registration-success': 'pending',
     'oauth-login': 'pending',
     'fetch-login-code': 'pending',
     'post-login-phone-verification': 'pending',
     'confirm-oauth': 'pending',
     'platform-verify': 'pending',
-  });
-  assert.equal(Object.prototype.hasOwnProperty.call(state.nodeStatuses, 'sub2api-session-import'), false);
-  assert.deepStrictEqual(broadcasts.at(-1), {
-    targetId: 'cpa',
-    signupMethod: 'email',
-    oauthUrl: null,
-    localhostUrl: null,
-    oauthFlowDeadlineAt: null,
-    oauthFlowDeadlineSourceUrl: null,
-    cpaOAuthState: null,
-    cpaManagementOrigin: null,
-    sub2apiSessionId: null,
-    sub2apiOAuthState: null,
-    sub2apiGroupId: null,
-    sub2apiGroupIds: [],
-    sub2apiDraftName: null,
-    sub2apiProxyId: null,
-    codex2apiSessionId: null,
-    codex2apiOAuthState: null,
-    nodeStatuses: {
-      'open-chatgpt': 'pending',
-      'plus-checkout-create': 'pending',
-      'plus-checkout-billing': 'pending',
-      'paypal-approve': 'pending',
-      'plus-checkout-return': 'pending',
-      'oauth-login': 'pending',
-      'fetch-login-code': 'pending',
-      'post-login-phone-verification': 'pending',
-      'confirm-oauth': 'pending',
-      'platform-verify': 'pending',
-    },
-    currentNodeId: '',
-  });
+  };
+  assert.deepStrictEqual(state.nodeStatuses, expectedNodeStatuses);
+  assert.equal(Object.prototype.hasOwnProperty.call(state.nodeStatuses, 'sub2api-agent-identity-import'), false);
+  const broadcast = broadcasts.at(-1);
+  assert.equal(broadcast.targetId, 'cpa');
+  assert.equal(broadcast.accountDeliveryMode, 'oauth');
+  assert.equal(broadcast.signupMethod, 'email');
+  assert.equal(broadcast.currentNodeId, '');
+  assert.deepStrictEqual(broadcast.nodeStatuses, expectedNodeStatuses);
 });
 
 test('SAVE_SETTING mirrors activeFlowId into flowId when switching to kiro flow', async () => {
@@ -812,6 +784,66 @@ test('CHECK_KIRO_RS_CONNECTION prefers current sidepanel payload over stale save
   ]);
 });
 
+test('CHECK_SUB2API_CONNECTION tests current credentials and returns platform groups', async () => {
+  const source = fs.readFileSync('background/message-router.js', 'utf8');
+  const globalScope = { console };
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundMessageRouter;`)(globalScope);
+  const calls = [];
+  const router = api.createMessageRouter({
+    getState: async () => ({
+      activeFlowId: 'grok',
+      sub2apiUrl: 'https://old.example.com/admin/accounts',
+      sub2apiEmail: 'old@example.com',
+      sub2apiPassword: 'old-secret',
+      settingsState: {
+        flows: {
+          grok: {
+            targets: {
+              sub2api: {
+                sub2apiUrl: 'https://canonical.example.com/admin/accounts',
+                sub2apiEmail: 'canonical@example.com',
+                sub2apiPassword: 'canonical-secret',
+              },
+            },
+          },
+        },
+      },
+    }),
+    testSub2ApiConnection: async (state, options) => {
+      calls.push({ state, options });
+      return {
+        connected: true,
+        groups: [
+          { id: 9, name: 'grok-default', platform: 'grok' },
+          { id: null, name: '', platform: 'grok' },
+        ],
+      };
+    },
+  });
+
+  const response = await router.handleMessage({
+    type: 'CHECK_SUB2API_CONNECTION',
+    payload: {
+      activeFlowId: 'grok',
+      sub2apiUrl: ' https://current.example.com/admin/accounts ',
+      sub2apiEmail: ' current@example.com ',
+      sub2apiPassword: ' current-secret ',
+    },
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.platform, 'grok');
+  assert.equal(response.message, 'SUB2API 连接成功，已获取 1 个 grok 分组。');
+  assert.deepStrictEqual(response.groups, [
+    { id: 9, name: 'grok-default', platform: 'grok' },
+  ]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].state.sub2apiUrl, 'https://current.example.com/admin/accounts');
+  assert.equal(calls[0].state.sub2apiEmail, 'current@example.com');
+  assert.equal(calls[0].state.sub2apiPassword, ' current-secret ');
+  assert.deepStrictEqual(calls[0].options, { platform: 'grok' });
+});
+
 test('AUTO_RUN applies current flow selection from payload before starting loop', async () => {
   const source = fs.readFileSync('background/message-router.js', 'utf8');
   const globalScope = { console };
@@ -931,6 +963,7 @@ test('AUTO_RUN applies current phone capability state from sidepanel payload bef
         signupMethod: validationState?.signupMethod,
         resolvedSignupMethod: validationState?.resolvedSignupMethod,
         phoneVerificationEnabled: validationState?.phoneVerificationEnabled,
+        plusModeEnabled: validationState?.plusModeEnabled,
         optionTargetId: options?.targetId,
       });
       return { ok: true, errors: [] };
@@ -946,7 +979,7 @@ test('AUTO_RUN applies current phone capability state from sidepanel payload bef
       targetId: 'webchat',
       signupMethod: 'email',
       phoneVerificationEnabled: false,
-      plusModeEnabled: false,
+      plusModeEnabled: true,
     },
   });
 
@@ -955,6 +988,7 @@ test('AUTO_RUN applies current phone capability state from sidepanel payload bef
   assert.equal(state.signupMethod, 'email');
   assert.equal(state.resolvedSignupMethod, null);
   assert.equal(state.phoneVerificationEnabled, false);
+  assert.equal(state.plusModeEnabled, false);
   assert.deepStrictEqual(calls, [
     {
       type: 'setState',
@@ -989,6 +1023,7 @@ test('AUTO_RUN applies current phone capability state from sidepanel payload bef
       signupMethod: 'email',
       resolvedSignupMethod: null,
       phoneVerificationEnabled: false,
+      plusModeEnabled: false,
       optionTargetId: 'webchat',
     },
   ]);
